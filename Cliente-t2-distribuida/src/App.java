@@ -1,12 +1,21 @@
 import java.io.BufferedReader;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.regex.Pattern;
 
 
 public class App {
@@ -17,10 +26,10 @@ public class App {
 	public static String fileName = "empty";
 	
     public static void main(String[] args) {
-    //IP::13.13.13.13
+    	//IP::13.13.13.13
     	//NAME::DanielOliveira
     	//HASH::5f9b549a516b0b0902f09921
-    //FILENAME::dgo/git/...
+    	//FILENAME::dgo/git/...
     	//SERVER::http://0cc544a67828.ngrok.io/api/v1/resources
     	
     	for (String arg : args) {
@@ -57,8 +66,7 @@ public class App {
 			System.out.println(fileName);
 			
     	try {
-			post(endpointServer+"/peer", 
-					mapPeer(ip, name, hash, fileName));
+			post(endpointServer+"/peer", mapPeer(ip, name, hash, fileName));
 			
 			new Thread() {
 
@@ -74,11 +82,12 @@ public class App {
 			                    System.out.print("HeartBeat failed");
 			                    e.printStackTrace();
 			                }
-			            }
-			        }, 0, 1000);
-
-			    }
-			  }.start();
+			      }}, 0, 1000);}}.start();
+			  
+			      
+			  new Thread(openSocketServer).start();
+			  
+			  
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -158,4 +167,105 @@ public class App {
 				+ "    }"
 				+ "  ]}";
     }
+    
+    private static Runnable openSocketServer = () -> {
+        try {
+            ServerSocket server = null;
+
+            server = new ServerSocket(4444);
+            System.out.println("Socket Server created ");
+
+            boolean done = false;
+
+            while (!done) {
+                Socket client = server.accept(); // get sender
+                DataInputStream dIn = new DataInputStream(client.getInputStream());
+                byte messageType = dIn.readByte(); // read message
+
+                switch (messageType) {
+                    case 1: // file solicitation
+                        String fileToSend = dIn.readUTF();
+                        System.out.println("Requested file: " + fileToSend);
+                        try {
+                            Socket peerServer = new Socket(client.getInetAddress(), 4444);
+
+                            DataOutputStream dOut = new DataOutputStream(peerServer.getOutputStream());
+
+                            FileInputStream fis = new FileInputStream(fileToSend);
+                            String[] file = fileToSend.split("\\.");
+                            String[] fileName = file[0].split(Pattern.quote(File.separator));
+                            String extension = "." + fileName[fileName.length - 1] + "-" + file[1] + ".";
+                            byte[] extensionByte = extension.getBytes();
+                            for (byte b : extensionByte) {
+                                dOut.write(b);
+                            }
+                            byte[] buffer = new byte[4096];
+                            int count;
+                            while ((count = fis.read(buffer)) >= 0) {
+                                dOut.write(buffer, 0, count);
+                            }
+
+
+                            fis.close();
+                            dOut.close();
+
+                        } catch (Exception e) {
+                            System.out.println("Erro ao enviar arquivo ao solicitante");
+                            e.printStackTrace();
+                        }
+                        break;
+                    default: // receiving file
+                        System.out.println("File received");
+
+                        DataInputStream dis = new DataInputStream(client.getInputStream());
+                        byte[] searchBuffer = dis.readAllBytes();
+                        byte[] fileContent = new byte[0];
+                        byte[] fileExtension = new byte[0];
+                        byte[] fileName = new byte[0];
+                        boolean hasName = false;
+                        boolean hasFileExtension = false;
+                        int fileNameLastByte = 0;
+                        int count = 0;
+                        for (byte infoByte : searchBuffer) {
+                            // verify if byte == "-"
+                            if (infoByte == 45) {
+                                if (!hasName) {
+                                    fileName = Arrays.copyOfRange(searchBuffer, 0, count);
+                                    fileNameLastByte = count;
+                                    hasName = true;
+                                }
+                            }
+                            // verify if byte == "."
+                            if (infoByte == 46) {
+                                if (!hasFileExtension) {
+                                    fileExtension = Arrays.copyOfRange(searchBuffer, fileNameLastByte + 1, count);
+                                    fileContent = Arrays.copyOfRange(searchBuffer, count + 1, searchBuffer.length);
+                                    hasFileExtension = true;
+                                }
+                            }
+                            count++;
+                        }
+
+                        FileOutputStream fos = new FileOutputStream("" + new String(fileName) + "." + new String(fileExtension));
+
+                        int totalRead = 0;
+                        for (byte info : fileContent) {
+                            fos.write(info);
+                            totalRead++;
+                        }
+                        System.out.println("Read " + totalRead + " bytes.");
+
+                        fos.close();
+                        dis.close();
+                        break;
+                }
+                client.close();
+                dIn.close();
+            }
+
+        } catch (IOException e) {
+            System.out.println("Failed to create socket server");
+            e.printStackTrace();
+        }
+    };
 }

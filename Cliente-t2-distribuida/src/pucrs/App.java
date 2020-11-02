@@ -1,3 +1,4 @@
+package pucrs;
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -7,93 +8,156 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.math.BigInteger;
 import java.net.HttpURLConnection;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.rmi.RemoteException;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Scanner;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
+
 
 
 public class App {
-	public static String endpointServer = "empty";
-	public static String ip = "empty";
-	public static String name = "empty";
-	public static String hash = "empty";
-	public static String fileName = "empty";
+	public static final String CHECK_IF_EXIST_USER = "exist";
+    public static final String GET_USER_WITH_HASH = "getFileHash";
+    public static final String GET_RESOURCES_LIST = "getResources";
+    public static final String GET_FILE_FROM_USER = "getFile";
+	public static String endpointServer = "http://576b877de59e.ngrok.io/api/v1/resources";
+	public static String myIp = "13.13.13.13";
+	public static String name = "Daniel_Oliveira";
+	public static String pathFiles = "Arquivos1";
+	public static ArrayList<String[]> files; 
 	
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
     	//IP::13.13.13.13
-    	//NAME::DanielOliveira
-    	//HASH::5f9b549a516b0b0902f09921
-    	//FILENAME::dgo/git/...
+    	//NAME::Daniel_Oliveira
+    	//PATHFILES::Arquivos1
     	//SERVER::http://0cc544a67828.ngrok.io/api/v1/resources
+    	files = new ArrayList<String[]>();
+    	args(args);
+    	lerArquivos(pathFiles);
     	
+    	
+    	post(endpointServer + "/peer", mapPeer(myIp, name, files));
+			
+		new Thread() {
+
+			@Override
+			public void run() {
+			    	
+				Timer timer = new Timer();
+				timer.schedule(new TimerTask() {
+				public void run() {
+					try {
+						get(endpointServer + "/peer/heartbeat/" + name);
+			        } catch (Exception e) {
+			        	System.out.print("HeartBeat failed");
+			            e.printStackTrace();
+			            }
+			      }}, 0, 5000);}}.start();
+			  
+			      
+			  new Thread(openSocketServer).start();
+			  
+			  Peer mainPeer = new Peer(name, myIp, pathFiles);
+			  
+			  String text = "";
+
+	            Scanner scan = new Scanner(System.in);
+	            
+	            do {
+	                /*
+	                 * le comando do usuario: -- exist <client_name> -- getFileHash <file_hash> --
+	                 * getResources <file_1> <file_2> <...> -- getFile <file>
+	                 */
+	                text = scan.nextLine();
+	                commandController(text, mainPeer);
+	            } while (!text.equalsIgnoreCase("exit"));
+		
+    }
+    
+    public static void commandController(String command, Peer thisPeer)
+            throws RemoteException, IOException {
+        String[] commands = command.split(" ");
+
+        switch (commands[0]) {
+
+            // solicitar recurso especifico
+            // getFile dc6444a370d16433b772d4b7860b110
+            case GET_FILE_FROM_USER:
+                Peer peerWithFile = getClientWithFileHash(commands[1]);
+                //thisPeer.requestFile(commands[1], peerWithFile);
+                break;
+
+            // saber quem tem recurso especifico
+            // getFileHash dc6444a370d16433b772d4b7860b110
+            case GET_USER_WITH_HASH:
+                //System.out.println("Peer que possui arquivo: " + server.getClientWithFileHash(commands[1], thisPeer).getName());
+                break;
+
+            // solicitar lista de recursos
+            // getResources
+            case GET_RESOURCES_LIST:
+
+                //files = server.getAllFileHash();
+                //System.out.println("Peer que possui arquivo: " + server.getAllFileHash());
+
+                break;
+
+            // verificar se usuario existe
+            // exist <client_name>
+            case CHECK_IF_EXIST_USER:
+                //System.out.println(server.peerExist(commands[1]));
+                break;
+        }
+    }
+    
+    private static Peer getClientWithFileHash(String hash) {
+    	System.out.println("getClientWithFileHash");
+    	ArrayList<String> response = get(endpointServer + "/peer/file/" + hash);
+    	
+    	
+    	return null;
+	}
+
+	public static void args(String[] args) {
+
     	for (String arg : args) {
 
-			/*
-			 * Caso o usuário passo o argumento minusculo ou maiusculo,
-			 * receberemos da mesma forma, assim evitamos o CASE SENSITIVE.
-			 */
 			arg = arg.trim();
 
 			if (arg.contains("IP:")) {
 
 				String[] argIp = arg.split("::");
-				ip = argIp[1];
-			} else if (arg.contains("FILENAME:")) {
+				myIp = argIp[1];
+			} else if (arg.contains("PATHFILES:")) {
 					String[] argFileName = arg.split("::");
-					fileName = argFileName[1];
+					pathFiles = argFileName[1];
 			} else if (arg.contains("NAME:")) {
 				String[] argName = arg.split("::");
 				name = argName[1];
-			} else if (arg.contains("HASH:")) {
-				String[] argHash = arg.split("::");
-				hash = argHash[1];
 			} else if (arg.contains("SERVER:")) {
 				String[] argServer = arg.split("::");
 				endpointServer = argServer[1];
 			} 
     	}
 			
-			System.out.println(endpointServer);
-			System.out.println(ip);
-			System.out.println(name);
-			System.out.println(hash);
-			System.out.println(fileName);
-			
-    	try {
-			post(endpointServer+"/peer", mapPeer(ip, name, hash, fileName));
-			
-			new Thread() {
-
-			    @Override
-			    public void run() {
-			    	
-			    	Timer timer = new Timer();
-			        timer.schedule(new TimerTask() {
-			            public void run() {
-			                try {
-			                    get(endpointServer + "/peer/heartbeat/" + name);
-			                } catch (Exception e) {
-			                    System.out.print("HeartBeat failed");
-			                    e.printStackTrace();
-			                }
-			      }}, 0, 1000);}}.start();
-			  
-			      
-			  new Thread(openSocketServer).start();
-			  
-			  
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-    	
-    	//System.out.println(hey);
-
+			System.out.print("server " + endpointServer);
+			System.out.print(" ip " + myIp);
+			System.out.print(" name " + name);
+			System.out.println(" file " + pathFiles);
     }
     
     public static ArrayList<String> get(String urlRequest) {
@@ -112,7 +176,6 @@ public class App {
             String nextLine;
             ArrayList<String> output = new ArrayList<String>();
             while ((nextLine = br.readLine()) != null) {
-                System.out.println(nextLine);
                 output.add(nextLine);
             }
             conn.disconnect();
@@ -158,14 +221,19 @@ public class App {
 		
     }
     
-    public static String mapPeer(String ip, String name, String hash, String fileName) {
+    public static String mapPeer(String ip, String name, ArrayList<String[]> files) {
+    	String fileNames = "";
+    	for (int i = 0; i < files.size(); i++) {
+			fileNames += "{"
+					+ "\"hash\": \"" + files.get(i)[1] + "\","
+					+ "\"name\": \"" + files.get(i)[0] + "\""
+					+ "},";
+		}
+    	fileNames = fileNames.substring(0, fileNames.length() - 1);
     	return "{\"ip\": \""+ip+"\", \"name\": \""+name+"\", "
 				+ "\"files\": ["
-				+ "    {"
-				+ "      \"hash\": \""+hash+"\","
-				+ "      \"name\": \""+fileName+"\""
-				+ "    }"
-				+ "  ]}";
+				+ fileNames
+				+ "]}";
     }
     
     private static Runnable openSocketServer = () -> {
@@ -183,7 +251,7 @@ public class App {
                 byte messageType = dIn.readByte(); // read message
 
                 switch (messageType) {
-                    case 1: // file solicitation
+                    case 1: // file solicitation           RECEBENDO SOLICITACAO
                         String fileToSend = dIn.readUTF();
                         System.out.println("Requested file: " + fileToSend);
                         try {
@@ -214,7 +282,7 @@ public class App {
                             e.printStackTrace();
                         }
                         break;
-                    default: // receiving file
+                    default: // receiving file   
                         System.out.println("File received");
 
                         DataInputStream dis = new DataInputStream(client.getInputStream());
@@ -268,4 +336,67 @@ public class App {
             e.printStackTrace();
         }
     };
+    
+    public static void lerArquivos(String rootPath) {
+        System.out.println("Reading your files to share...");
+        try (Stream<Path> paths = Files.walk(Paths.get(rootPath))) {
+
+            paths.forEach(filePath -> {
+                if (Files.isRegularFile(filePath)) {
+                    try {
+                    	String[] f = {filePath.toString(), getHashFile(filePath.toString())};
+                        files.add(f);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+            System.out.println("Files ready");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public static String getHashFile(String path) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            md.update(Files.readAllBytes(Paths.get(path)));
+
+            return new BigInteger(1, md.digest()).toString(16);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public void requestFile(String hashFile, Peer host) throws IOException {
+        String pathFile = host.pathByHash(hashFile);
+
+        Socket socket = new Socket(host.getAddress(), 4444);
+        DataOutputStream dOut = new DataOutputStream(socket.getOutputStream());
+
+        // file request
+        dOut.writeByte(1);
+        // file path
+        dOut.writeUTF(pathFile);
+        dOut.flush(); // Send off the data
+
+        // finish
+        dOut.writeByte(-1);
+        dOut.flush(); // Send off the data
+
+        dOut.close();
+
+    }
+    
+    public static String pathByHash(String hash) {
+    	for (int i = 0; i < files.size(); i++) {
+			if(files.get(i)[1].equals(hash)) {
+				return files.get(i)[0];
+			}
+		}
+        return null;
+    }
+    
+    
 }
